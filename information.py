@@ -4,33 +4,53 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
+
+def clean_html(html_text: str) -> BS:
+    return BS(html_text.replace('&mdash;', ''), 'html.parser')
+
+
+def extract_text(html: BS, selector: str) -> str:
+    element = html.select_one(selector)
+    return element.get_text(strip=True) if element else ""
+
+
+def parse_school_info(school_page: str) -> str:
+    html = clean_html(school_page)
+    selector = (
+        'body > div.container > div.row > #cabinet > div.col-md-9.col > div > '
+        'div.panel-body > div > div.col-md-9 > div > #frm > table > tr:nth-child(5) > td:nth-child(2)'
+    )
+    return extract_text(html, selector)
+
+
+def parse_class_info(marks_page: str) -> str:
+    html = clean_html(marks_page)
+    selector = '#content > div.r_block > div > div > p:nth-child(2)'
+    class_text = extract_text(html, selector)
+    return class_text.split('Класс: ')[1] if 'Класс: ' in class_text else ""
+
+
+def parse_medium_score(marks_page: str) -> float:
+    html = clean_html(marks_page)
+    marks_rows = html.select('#content > div.r_block > div > div > div > table > tbody > tr')
+    selector = f'#content > div.r_block > div > div > div > table > tbody > tr:nth-child({len(marks_rows)}) > td'
+    medium_text = extract_text(html, selector)
+    try:
+        return float(medium_text)
+    except ValueError:
+        return 0.0
+
+
 @router.get("/")
 def get_information_about_school_and_class(login: str, password: str) -> tuple[str, str, float]:
+    urls = [
+        'https://edu.tatar.ru/user/anketa/edit',
+        'https://edu.tatar.ru/user/diary/term'
+    ]
+    school_page, marks_page = edu_login.get_urls(login, password, urls)
 
-    urls = ['https://edu.tatar.ru/user/anketa/edit', 'https://edu.tatar.ru/user/diary/term']
-    texts = edu_login.get_urls(login, password, urls)
+    school = parse_school_info(school_page)
+    class_ = parse_class_info(marks_page)
+    medium = parse_medium_score(marks_page)
 
-    school = texts[0]
-    school = school.replace('&mdash;', '')
-    html = BS(school, 'html.parser')
-    school = html.select(
-        'body > div.container > div.row >'
-        ' #cabinet > div.col-md-9.col > div > div.panel-body > div > div.col-md-9 > div >'
-        ' #frm > table > tr:nth-child(5) > td:nth-child(2)'
-    )
-    school = school[0].getText().strip()
-
-    marks_class = texts[1]
-    marks_class = marks_class.replace('&mdash;', '')
-    html = BS(marks_class, 'html.parser')
-    class_ = html.select('#content > div.r_block > div > div > p:nth-child(2)')[0].getText()
-    class_ = class_.split('Класс: ')[1].strip()
-
-    count = len(html.select('#content > div.r_block > div > div > div > table > tbody > tr'))
-    medium = html.select(f'#content > div.r_block > div > div > div > table > tbody > tr:nth-child({count}) > td')
-    medium = medium[1].getText()
-    try:
-        medium = float(medium)
-    except ValueError:
-        medium = 0.0
     return school, class_, medium
